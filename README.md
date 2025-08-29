@@ -1,0 +1,2 @@
+# rustrun-rs
+The `cdylib`-style Rust DLL designed to be placed next to [RustRun](https://github.com/duckfromdiscord/RustRun/) in the PowerToys Run plugin folder. Heavily supported by research done in [csbindgen](https://github.com/Cysharp/csbindgen). Pending a rewrite as a crate with a macro that can be used in a new project.
