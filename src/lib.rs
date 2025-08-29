@@ -1,10 +1,22 @@
-use std::{
-    ffi::{CString, c_char},
-};
+use std::ffi::{CString, c_char};
 
-const PLUGIN_ID: &str = "D5B6F9FA29F7488493010F58BC251E6C";
-const PLUGIN_NAME: &str = "RustRun";
-const PLUGIN_DESC: &str = "RustRun Desc";
+
+#[macro_export]
+macro_rules! rustrun_info {
+    ($id:ident, $name:ident, $desc:ident) => {
+
+#[unsafe(no_mangle)]
+pub extern "C" fn get_plugin_info(which: u8) -> *mut std::ffi::c_char {
+    match which {
+        0 => std::ffi::CString::new($id).unwrap().into_raw(),
+        1 => std::ffi::CString::new($name).unwrap().into_raw(),
+        2 => std::ffi::CString::new($desc).unwrap().into_raw(),
+        _ => std::ffi::CString::new("").unwrap().into_raw(),
+    }
+}
+
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct SearchState {
@@ -78,17 +90,6 @@ pub fn to_c_str(str: &str) -> *mut c_char {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn get_plugin_info(which: u8) -> *mut c_char {
-    let str = match which {
-        0 => PLUGIN_ID,
-        1 => PLUGIN_NAME,
-        2 => PLUGIN_DESC,
-        _ => "",
-    };
-    to_c_str(str)
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_c_string(str: *mut c_char) {
     unsafe {
         let x = CString::from_raw(str);
@@ -121,13 +122,17 @@ pub struct ContextMenuResults {
     pub ptr: *mut CContextMenuResult,
 }
 
+#[macro_export]
+macro_rules! impl_rustrun {
+    ($search:ident, $ctx:ident) => {
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn init_search(utf16_str: *const u16, utf16_len: i32) -> SearchResults {
     let query = unsafe {
         take_cs_string(utf16_str, utf16_len)
     };
 
-    let boxx = search(query)
+    let boxx = $search(query)
         .iter()
         .map(|rsr| CSearchResult {
             query_text_display: to_c_str(&rsr.query_text_display),
@@ -143,6 +148,39 @@ pub unsafe extern "C" fn init_search(utf16_str: *const u16, utf16_len: i32) -> S
     let len = boxx.len();
     let ptr = Box::<[CSearchResult]>::into_raw(boxx) as *mut CSearchResult;
     SearchResults { len, ptr }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn get_context_menu(cssr: CSSearchResult) -> ContextMenuResults {
+    let sr: SearchResult = unsafe {
+        SearchResult {
+        query_text_display: take_cs_string(cssr.query_text_display, cssr.query_text_display_length),
+        ico_path: take_cs_string(cssr.ico_path, cssr.ico_path_length),
+        title: take_cs_string(cssr.title, cssr.title_length),
+        subtitle: take_cs_string(cssr.subtitle, cssr.subtitle_length),
+        tooltip: (take_cs_string(cssr.tooltip_a, cssr.tooltip_a_length),
+        take_cs_string(cssr.tooltip_b, cssr.tooltip_b_length))
+        }
+    };
+    let boxx = $ctx(sr)
+        .iter()
+        .map(|cosr| CContextMenuResult {
+            plugin_name: to_c_str(&cosr.plugin_name),
+            title: to_c_str(&cosr.title),
+            font_family: to_c_str(&cosr.font_family),
+            glyph: to_c_str(&cosr.glyph),
+            accelerator_key: cosr.accelerator_key,
+            accelerator_modifiers: cosr.accelerator_modifiers,
+        })
+        .collect::<Vec<CContextMenuResult>>()
+        .into_boxed_slice();
+
+    let len = boxx.len();
+    let ptr = Box::<[CContextMenuResult]>::into_raw(boxx) as *mut CContextMenuResult;
+    ContextMenuResults { len, ptr }
+}
+       
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -164,37 +202,6 @@ pub unsafe extern "C" fn drop_search_result(csr: CSearchResult) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn get_context_menu(cssr: CSSearchResult) -> ContextMenuResults {
-    let sr: SearchResult = unsafe {
-        SearchResult {
-        query_text_display: take_cs_string(cssr.query_text_display, cssr.query_text_display_length),
-        ico_path: take_cs_string(cssr.ico_path, cssr.ico_path_length),
-        title: take_cs_string(cssr.title, cssr.title_length),
-        subtitle: take_cs_string(cssr.subtitle, cssr.subtitle_length),
-        tooltip: (take_cs_string(cssr.tooltip_a, cssr.tooltip_a_length),
-        take_cs_string(cssr.tooltip_b, cssr.tooltip_b_length))
-        }
-    };
-    let boxx = context_menu(sr)
-        .iter()
-        .map(|cosr| CContextMenuResult {
-            plugin_name: to_c_str(&cosr.plugin_name),
-            title: to_c_str(&cosr.title),
-            font_family: to_c_str(&cosr.font_family),
-            glyph: to_c_str(&cosr.glyph),
-            accelerator_key: cosr.accelerator_key,
-            accelerator_modifiers: cosr.accelerator_modifiers,
-        })
-        .collect::<Vec<CContextMenuResult>>()
-        .into_boxed_slice();
-
-    let len = boxx.len();
-    let ptr = Box::<[CContextMenuResult]>::into_raw(boxx) as *mut CContextMenuResult;
-    ContextMenuResults { len, ptr }
-}
-
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn drop_context_menu_result(cs: CContextMenuResult) {
     unsafe {
         free_c_string(cs.plugin_name);
@@ -208,16 +215,4 @@ pub unsafe extern "C" fn drop_context_menu_result(cs: CContextMenuResult) {
 pub unsafe extern "C" fn drop_context_menu(css: ContextMenuResults) {
     let boxx = unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(css.ptr, css.len)) };
     drop(boxx)
-}
-
-// write custom code in the two functions below
-
-/// Returns a list of search results for a given query.
-pub fn search(query: String) -> Vec<SearchResult> {
-    vec![]
-}
-
-/// Returns a list of context menu buttons for a given search result.
-pub fn context_menu(query: SearchResult) -> Vec<ContextMenuResult> {
-    vec![]
 }
