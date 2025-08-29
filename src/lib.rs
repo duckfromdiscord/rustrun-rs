@@ -1,5 +1,5 @@
 use std::ffi::{CString, c_char};
-
+use base64::prelude::*;
 
 #[macro_export]
 macro_rules! rustrun_info {
@@ -84,8 +84,11 @@ pub struct CContextMenuResult {
     pub accelerator_modifiers: i32,
 }
 
-pub fn to_c_str(str: &str) -> *mut c_char {
-    let c_str = CString::new(str).unwrap();
+pub fn to_c_str(str: &str, base64: bool) -> *mut c_char {
+    let c_str = CString::new(match base64 {
+        true => BASE64_STANDARD.encode(str),
+        false => str.to_string()
+    }).unwrap();
     c_str.into_raw()
 }
 
@@ -135,12 +138,12 @@ pub unsafe extern "C" fn init_search(utf16_str: *const u16, utf16_len: i32) -> S
     let boxx = $search(query)
         .iter()
         .map(|rsr| CSearchResult {
-            query_text_display: to_c_str(&rsr.query_text_display),
-            ico_path: to_c_str(&rsr.ico_path),
-            title: to_c_str(&rsr.title),
-            subtitle: to_c_str(&rsr.subtitle),
-            tooltip_a: to_c_str(&rsr.tooltip.0),
-            tooltip_b: to_c_str(&rsr.tooltip.1),
+            query_text_display: to_c_str(&rsr.query_text_display, true),
+            ico_path: to_c_str(&rsr.ico_path, true),
+            title: to_c_str(&rsr.title, true),
+            subtitle: to_c_str(&rsr.subtitle, true),
+            tooltip_a: to_c_str(&rsr.tooltip.0, true),
+            tooltip_b: to_c_str(&rsr.tooltip.1, true),
         })
         .collect::<Vec<CSearchResult>>()
         .into_boxed_slice();
@@ -165,10 +168,10 @@ pub unsafe extern "C" fn get_context_menu(cssr: CSSearchResult) -> ContextMenuRe
     let boxx = $ctx(sr)
         .iter()
         .map(|cosr| CContextMenuResult {
-            plugin_name: to_c_str(&cosr.plugin_name),
-            title: to_c_str(&cosr.title),
-            font_family: to_c_str(&cosr.font_family),
-            glyph: to_c_str(&cosr.glyph),
+            plugin_name: to_c_str(&cosr.plugin_name, true),
+            title: to_c_str(&cosr.title, true),
+            font_family: to_c_str(&cosr.font_family, true),
+            glyph: to_c_str(&cosr.glyph, true),
             accelerator_key: cosr.accelerator_key,
             accelerator_modifiers: cosr.accelerator_modifiers,
         })
