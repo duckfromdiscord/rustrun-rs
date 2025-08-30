@@ -1,4 +1,4 @@
-use std::ffi::{CString, c_char};
+use std::ffi::{c_char, c_void, CString};
 use base64::prelude::*;
 
 #[macro_export]
@@ -18,7 +18,6 @@ pub extern "C" fn get_plugin_info(which: u8) -> *mut std::ffi::c_char {
     }
 }
 
-#[derive(Clone, Debug)]
 pub struct SearchState {
     pub query: String,
     pub results: Vec<SearchResult>,
@@ -26,13 +25,14 @@ pub struct SearchState {
     pub finished: bool,
 }
 
-#[derive(Clone, Debug)]
+//#[derive(Clone, Debug)]
 pub struct SearchResult {
     pub query_text_display: String,
     pub ico_path: String,
     pub title: String,
     pub subtitle: String,
     pub tooltip: (String, String),
+    pub action: Callback,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +44,7 @@ pub struct CSearchResult {
     pub subtitle: *mut c_char,
     pub tooltip_a: *mut c_char,
     pub tooltip_b: *mut c_char,
+    pub action: *mut c_void,
 }
 
 #[derive(Clone, Debug)]
@@ -60,7 +61,7 @@ pub struct CSSearchResult {
     pub tooltip_a_length: i32,
     pub tooltip_a: *const u16,
     pub tooltip_b_length: i32,
-    pub tooltip_b: *const u16,
+    pub tooltip_b: *const u16
 }
 
 #[derive(Clone, Debug)]
@@ -125,6 +126,21 @@ pub struct ContextMenuResults {
     pub ptr: *mut CContextMenuResult,
 }
 
+pub fn take_cs_search_result(cssr: CSSearchResult) -> SearchResult {
+    unsafe {
+        SearchResult {
+        query_text_display: take_cs_string(cssr.query_text_display, cssr.query_text_display_length),
+        ico_path: take_cs_string(cssr.ico_path, cssr.ico_path_length),
+        title: take_cs_string(cssr.title, cssr.title_length),
+        subtitle: take_cs_string(cssr.subtitle, cssr.subtitle_length),
+        tooltip: (take_cs_string(cssr.tooltip_a, cssr.tooltip_a_length),
+        take_cs_string(cssr.tooltip_b, cssr.tooltip_b_length)),
+        // TODO: fix
+        action: Callback::new(Box::new(|| {return false})),
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! impl_rustrun {
     ($search:ident, $ctx:ident) => {
@@ -136,7 +152,7 @@ pub unsafe extern "C" fn init_search(utf16_str: *const u16, utf16_len: i32) -> S
     };
 
     let boxx = $search(query)
-        .iter()
+        .into_iter()
         .map(|rsr| CSearchResult {
             query_text_display: to_c_str(&rsr.query_text_display, true),
             ico_path: to_c_str(&rsr.ico_path, true),
@@ -144,6 +160,7 @@ pub unsafe extern "C" fn init_search(utf16_str: *const u16, utf16_len: i32) -> S
             subtitle: to_c_str(&rsr.subtitle, true),
             tooltip_a: to_c_str(&rsr.tooltip.0, true),
             tooltip_b: to_c_str(&rsr.tooltip.1, true),
+            action: Callback::into_pointer(rsr.action) as *mut std::ffi::c_void,
         })
         .collect::<Vec<CSearchResult>>()
         .into_boxed_slice();
@@ -155,16 +172,7 @@ pub unsafe extern "C" fn init_search(utf16_str: *const u16, utf16_len: i32) -> S
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_context_menu(cssr: CSSearchResult) -> ContextMenuResults {
-    let sr: SearchResult = unsafe {
-        SearchResult {
-        query_text_display: take_cs_string(cssr.query_text_display, cssr.query_text_display_length),
-        ico_path: take_cs_string(cssr.ico_path, cssr.ico_path_length),
-        title: take_cs_string(cssr.title, cssr.title_length),
-        subtitle: take_cs_string(cssr.subtitle, cssr.subtitle_length),
-        tooltip: (take_cs_string(cssr.tooltip_a, cssr.tooltip_a_length),
-        take_cs_string(cssr.tooltip_b, cssr.tooltip_b_length))
-        }
-    };
+    let sr = take_cs_search_result(cssr);
     let boxx = $ctx(sr)
         .iter()
         .map(|cosr| CContextMenuResult {
@@ -185,6 +193,42 @@ pub unsafe extern "C" fn get_context_menu(cssr: CSSearchResult) -> ContextMenuRe
        
     }
 }
+
+// thank you for the help with this
+pub struct Callback {
+    b: Box<dyn Fn() -> bool>
+}
+impl Callback {
+    pub fn new(f: impl Fn() -> bool + 'static) -> Self {
+        Callback { b: Box::new(f) }
+    }
+
+    pub fn call(&self) -> bool {
+        (self.b)()
+    }
+
+    pub fn into_pointer(self) -> *mut Self {
+        Box::into_raw(Box::new(self))
+    }
+
+    /// # Safety 
+    /// - ptr must be unique and come from into_pointer
+    pub unsafe fn from_pointer(ptr: *mut Self) -> Self {
+        *unsafe { Box::from_raw(ptr) }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn callback_trampoline(c: *const Callback) -> bool {
+    unsafe { &*c }.call()
+}
+
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn callback_dealloc(c: *mut Callback) {
+    unsafe { Callback::from_pointer(c) };
+}
+
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn drop_search(srs: SearchResults) {
