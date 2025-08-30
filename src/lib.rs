@@ -25,7 +25,6 @@ pub struct SearchState {
     pub finished: bool,
 }
 
-//#[derive(Clone, Debug)]
 pub struct SearchResult {
     pub query_text_display: String,
     pub ico_path: String,
@@ -64,7 +63,6 @@ pub struct CSSearchResult {
     pub tooltip_b: *const u16
 }
 
-#[derive(Clone, Debug)]
 pub struct ContextMenuResult {
     pub plugin_name: String,
     pub title: String,
@@ -72,6 +70,7 @@ pub struct ContextMenuResult {
     pub glyph: String,
     pub accelerator_key: i32,
     pub accelerator_modifiers: i32,
+    pub action: Callback,
 }
 
 #[derive(Clone, Debug)]
@@ -83,6 +82,7 @@ pub struct CContextMenuResult {
     pub glyph: *mut c_char,
     pub accelerator_key: i32,
     pub accelerator_modifiers: i32,
+    pub action: *mut c_void,
 }
 
 pub fn to_c_str(str: &str, base64: bool) -> *mut c_char {
@@ -174,7 +174,7 @@ pub unsafe extern "C" fn init_search(utf16_str: *const u16, utf16_len: i32) -> S
 pub unsafe extern "C" fn get_context_menu(cssr: CSSearchResult) -> ContextMenuResults {
     let sr = take_cs_search_result(cssr);
     let boxx = $ctx(sr)
-        .iter()
+        .into_iter()
         .map(|cosr| CContextMenuResult {
             plugin_name: to_c_str(&cosr.plugin_name, true),
             title: to_c_str(&cosr.title, true),
@@ -182,6 +182,7 @@ pub unsafe extern "C" fn get_context_menu(cssr: CSSearchResult) -> ContextMenuRe
             glyph: to_c_str(&cosr.glyph, true),
             accelerator_key: cosr.accelerator_key,
             accelerator_modifiers: cosr.accelerator_modifiers,
+            action: Callback::into_pointer(cosr.action) as *mut std::ffi::c_void,
         })
         .collect::<Vec<CContextMenuResult>>()
         .into_boxed_slice();
