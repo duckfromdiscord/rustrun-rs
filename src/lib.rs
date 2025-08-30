@@ -32,6 +32,7 @@ pub struct SearchResult {
     pub subtitle: String,
     pub tooltip: (String, String),
     pub action: Callback,
+    pub context: String,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +45,7 @@ pub struct CSearchResult {
     pub tooltip_a: *mut c_char,
     pub tooltip_b: *mut c_char,
     pub action: *mut c_void,
+    pub context: *mut c_char,
 }
 
 #[derive(Clone, Debug)]
@@ -60,7 +62,10 @@ pub struct CSSearchResult {
     pub tooltip_a_length: i32,
     pub tooltip_a: *const u16,
     pub tooltip_b_length: i32,
-    pub tooltip_b: *const u16
+    pub tooltip_b: *const u16,
+    pub action: *mut c_void,
+    pub context_length: i32,
+    pub context: *const u16
 }
 
 pub struct ContextMenuResult {
@@ -137,6 +142,7 @@ pub fn take_cs_search_result(cssr: CSSearchResult) -> SearchResult {
         take_cs_string(cssr.tooltip_b, cssr.tooltip_b_length)),
         // TODO: fix
         action: Callback::new(Box::new(|| {return false})),
+        context: take_cs_string(cssr.context, cssr.context_length),
         }
     }
 }
@@ -161,6 +167,7 @@ pub unsafe extern "C" fn init_search(utf16_str: *const u16, utf16_len: i32) -> S
             tooltip_a: to_c_str(&rsr.tooltip.0, true),
             tooltip_b: to_c_str(&rsr.tooltip.1, true),
             action: Callback::into_pointer(rsr.action) as *mut std::ffi::c_void,
+            context: to_c_str(&rsr.context, true)
         })
         .collect::<Vec<CSearchResult>>()
         .into_boxed_slice();
@@ -246,6 +253,7 @@ pub unsafe extern "C" fn drop_search_result(csr: CSearchResult) {
         free_c_string(csr.subtitle);
         free_c_string(csr.tooltip_a);
         free_c_string(csr.tooltip_b);
+        free_c_string(csr.context);
     }
 }
 
